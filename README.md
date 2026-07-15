@@ -7,8 +7,8 @@
 ### Mentors
 
 - **Stephanie Wang** — Technische Universität Berlin (TU Berlin)
-- **Yousuf Soliman** — SideFX  
-  *Carnegie Mellon University alumnus*
+- **Yousuf Soliman** — Side Effects Software, Inc.  
+ 
 
 ### Volunteer
 
