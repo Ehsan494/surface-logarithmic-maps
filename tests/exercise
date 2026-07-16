@@ -1,0 +1,320 @@
+import gpytoolbox as gpy
+import numpy as np
+import polyscope as ps
+
+from collections import defaultdict
+import scipy.sparse as sp
+import polyscope.imgui as psim
+
+
+
+#function that returns the normals based on vertices in the mesh
+def vertex_normals(vertices, faces):
+    vertex_N = gpy.per_vertex_normals(vertices, faces)
+    return vertex_N
+
+
+
+#create a function that will calculate the area around all the vertices
+def vertex_area(faces, vertices):
+    num_vertices = len(vertices)
+    areas = np.zeros(num_vertices)
+
+    for face in faces:
+        i, j, k = face
+
+        v0 = vertices[i]
+        v1 = vertices[j]
+        v2 = vertices[k]
+
+        v = v1 - v0
+        u = v2 - v0
+
+        tri_area = 0.5 * np.linalg.norm(np.cross(v,u))
+
+        areas[i] += tri_area / 3
+        areas[j] += tri_area / 3
+        areas[k] += tri_area / 3
+
+    return areas
+
+
+
+#define the mass matrix based on previously computed areas
+def mass_matrix(areas):
+    M = sp.diags(np.repeat(areas,3))
+    return M
+
+
+
+
+def tangent_frames(vertex_normals):
+    """
+    Compute one deterministic unit tangent vector at every vertex.
+    """
+    num_vertices = len(vertex_normals)
+
+    tangents = np.zeros((num_vertices, 3))
+
+    coordinate_axes = np.eye(3)
+
+    for i in range(num_vertices):
+        n = vertex_normals[i]
+
+        axis_index = np.argmin(np.abs(n))
+        reference = coordinate_axes[axis_index]
+
+        # Project onto the tangent plane
+        t = reference - np.dot(reference, n) * n
+        t /= np.linalg.norm(t)
+
+        tangents[i] = t
+
+    return tangents
+
+
+
+#cotangent edge weights
+
+def cotangent_at_vertex(i, j, k):
+
+    u = j - i
+    v = k - i
+
+    denominator = np.linalg.norm(np.cross(u, v))
+
+    if denominator < 1e-12:
+        return 0.0
+
+    return np.dot(u, v) / denominator
+
+
+def cotangent_weights(vertices, faces):
+    """
+    Compute
+
+        w_ij = 1/2 (cot(alpha_ij) + cot(beta_ij))
+
+    for each mesh edge (i, j).
+    """
+    weights = defaultdict(float)
+
+    for i, j, k in faces:
+        vi = vertices[i]
+        vj = vertices[j]
+        vk = vertices[k]
+
+        cot_i = cotangent_at_vertex(vi, vj, vk)
+        cot_j = cotangent_at_vertex(vj, vk, vi)
+        cot_k = cotangent_at_vertex(vk, vi, vj)
+
+        # Angle at k is opposite edge (i, j).
+        weights[tuple(sorted((i, j)))] += 0.5 * cot_k
+
+        # Angle at i is opposite edge (j, k).
+        weights[tuple(sorted((j, k)))] += 0.5 * cot_i
+
+        # Angle at j is opposite edge (k, i).
+        weights[tuple(sorted((k, i)))] += 0.5 * cot_j
+
+    return weights
+
+
+
+#new rod rotate, using less trig, 3x3
+def rod_rotate(n1, n2):
+    #normalize
+    n1 = n1 / np.linalg.norm(n1)
+    n2 = n2 / np.linalg.norm(n2)
+
+    A = np.outer(n2,n1) - np.outer(n1,n2)
+    B = (A@A) / (1 + np.dot(n1, n2))
+
+    return np.eye(3) + A + B
+
+
+
+#vertex to vertex connection rotation
+def vertex_connections(vertex_normals, edges):
+    connections = {}
+
+    for i, j in edges:
+        connections[(i, j)] = rod_rotate(vertex_normals[i],vertex_normals[j])
+
+        connections[(j, i)] = rod_rotate(vertex_normals[j],vertex_normals[i])
+
+    return connections
+
+
+
+#connection laplacian
+def connection_laplacian(connections, edges, weights, num_vertices):
+    weight_sum = np.zeros(num_vertices)
+    values = []
+    rows = []
+    cols = []
+
+    def add_block(i,j,A):
+        for x in np.arange(3):
+            for y in np.arange(3):
+                rows.append(3*i + x)
+                cols.append(3*j + y)
+                values.append(A[x,y])
+    
+    for i,j in edges:
+        w = weights[tuple(sorted((i,j)))]
+        weight_sum[i] += w
+        weight_sum[j] += w
+
+        add_block(i,j,-w * connections[(j, i)])
+        add_block(j,i,-w * connections[(i, j)])
+
+    for i in np.arange(num_vertices):
+        add_block(i,i, weight_sum[i] * np.eye(3))
+
+    return sp.coo_matrix((values, (rows,cols)), shape=(3*num_vertices, 3*num_vertices)).tocsr()
+
+
+def connection_laplacian_2d(connections, edges, weights, num_vertices, frames, vertex_normals):
+    weight_sum = np.zeros(num_vertices)
+    values = []
+    rows = []
+    cols = []
+
+    def add_block(i,j,A):
+        for x in np.arange(2):
+            for y in np.arange(2):
+                rows.append(2*i + x)
+                cols.append(2*j + y)
+                values.append(A[x,y])
+    
+    for i,j in edges:
+        w = weights[tuple(sorted((i,j)))]
+        weight_sum[i] += w
+        weight_sum[j] += w
+        t1_i = frames[i]
+        t2_i = np.cross(vertex_normals[i],t1_i)
+
+        t1_j = frames[j]
+        t2_j = np.cross(vertex_normals[j],t1_j)
+
+
+        Aij = connections[(i,j)]
+        Aji = connections[(j,i)]
+
+        Fi = np.c_[t1_i, t2_i]
+        Fj = np.c_[t1_j, t2_j]
+
+        Bij = Fj.T @ Aij @ Fi
+        Bji = Fi.T @ Aji @ Fj
+
+        add_block(i,j,-w * Bji)
+        add_block(j,i,-w * Bij)
+
+    for i in np.arange(num_vertices):
+        add_block(i,i, weight_sum[i] * np.eye(2))
+
+    return sp.coo_matrix((values, (rows,cols)), shape=(2*num_vertices, 2*num_vertices)).tocsr()
+
+def mass_matrix_2d(areas):
+    M = sp.diags(np.repeat(areas,2))
+    return M
+
+
+
+def eval_connection_laplacian(connections, edges, weights, num_vertices, z):
+
+    sum = 0
+
+    for i,j in edges:
+        diff = z[3*i:(3*i+3)] - np.dot(connections[(j,i)],z[3*j:(3*j+3)])
+        
+        sum += weights[(i,j)] * np.dot(diff, diff)
+
+
+    return sum
+
+#starts with 2d vectors per vertex, outputs 3d vector corresponding to 2d vector relative to og frames per vertex
+def intr_to_extr(frames, N, v):
+
+    z = np.zeros((len(frames), 3))
+
+    for i in np.arange(len(frames)):
+        t1 = frames[i]
+        t2 = np.cross(N[i],t1)
+
+        z[i] = v[i,0]*t1 + v[i,1]*t2 
+        
+    return z
+
+#starts with 3d vectors per vertex, outputs 2d vector corresponding to 3d vector 
+# relative to og frames per vertex
+def extr_to_intr(frames, N, z):
+    v = np.zeros((len(frames), 2))
+
+    for i in np.arange(len(frames)):
+        t1 = frames[i]
+        t2 = np.cross(N[i],t1)
+        alpha = np.dot(z[i], t1)
+        beta = np.dot(z[i], t2)
+
+        v[i,0] = alpha
+        v[i,1] = beta
+
+    return v
+
+#reads in data/mesh
+filename = "./spider12_0.obj"
+vertices, faces = gpy.read_mesh(filename)
+ps.init()
+ps_mesh = ps.register_surface_mesh("spider_large", vertices, faces)
+
+num_vertices = len(vertices)
+vertex_normals = vertex_normals(vertices, faces)
+areas = vertex_area(faces, vertices)
+M = mass_matrix_2d(areas)
+frames = tangent_frames(vertex_normals)
+edges = gpy.edges(faces)
+weights = cotangent_weights(vertices, faces)
+connections = vertex_connections(vertex_normals, edges)
+L = connection_laplacian_2d(connections, edges, weights, num_vertices, frames, vertex_normals)
+
+v = np.random.rand(num_vertices,2)
+z = intr_to_extr(frames, vertex_normals, v)
+v_new = extr_to_intr(frames, vertex_normals, z)
+z_new = intr_to_extr(frames, vertex_normals, v_new)
+
+
+
+
+v_idx = 0
+
+def callback():
+    global v_idx
+    _,v_idx = psim.InputInt("vertex index", v_idx)
+    if psim.Button("VHM"):
+        z = np.zeros(3*num_vertices)
+        z[3*v_idx:3*v_idx+3] = np.cross(vertex_normals[v_idx], [1,1,1])
+        v = extr_to_intr(frames, vertex_normals, z.reshape(-1,3))
+
+
+        h = np.mean(gpy.halfedge_lengths(vertices, faces))
+        h = h*h
+        heat_op = M + h * L
+
+        diffused = sp.linalg.spsolve(heat_op, v.reshape(-1,1))
+        diffused = diffused.reshape(-1,2)
+
+        diffused = intr_to_extr(frames, vertex_normals, diffused)
+        norms = np.linalg.norm(diffused, axis=1, keepdims=True)
+        diffused = diffused / norms
+
+        ps_mesh.add_vector_quantity("diffused vectors", diffused, defined_on="vertices", enabled=True)
+        return
+    return
+
+ps.set_user_callback(callback)
+ps.show()
+
+
+
