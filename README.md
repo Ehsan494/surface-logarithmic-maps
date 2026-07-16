@@ -65,7 +65,7 @@ The current workflow includes:
 9. Extracting relative directions and rotations between selected surface vertices.
 
 ## Repository Structure
-
+```
 surface-logarithmic-maps/
 │
 ├── README.md
@@ -102,6 +102,7 @@ surface-logarithmic-maps/
 └── data/
     └── sample_meshes/
         └── bunny_small.obj
+```
 
 
 ## Dependencies
