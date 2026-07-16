@@ -2,13 +2,16 @@
 
 **MIT Summer Geometry Initiative (SGI) 2026**
 
+This repository contains my implementations, experiments, visualizations, and
+notes produced while volunteering on the Surface Logarithmic Maps project
+during SGI 2026.
+
 ## Project Team
 
 ### Mentors
 
 - **Stephanie Wang** — Technische Universität Berlin (TU Berlin)
-- **Yousuf Soliman** — Side Effects Software, Inc.  
- 
+- **Yousuf Soliman** — Side Effects Software, Inc.
 
 ### Volunteer
 
@@ -21,51 +24,142 @@
 
 ## Project Description
 
-This project develops a discrete framework for computing surface logarithmic maps on triangle meshes. We construct vertex normals and tangent frames, define edgewise parallel transport using Rodrigues rotations, assemble a cotangent-weighted connection Laplacian, and use vector heat diffusion to propagate tangent directions across the surface. These tools provide the geometric information needed to estimate relative directions and logarithmic-map coordinates between selected surface points.
+The broader project studies discrete methods for computing and consistently
+aligning surface logarithmic maps on triangle meshes.
 
-## Overview
+A logarithmic map centered at one surface point gives a local flattening of the
+surface into a tangent plane. Since a single logarithmic map becomes distorted
+away from its center, the broader goal is to compute several local maps and
+align them using tangent frames, parallel transport, connection operators, and
+vector heat diffusion.
 
-A tangent vector at one point of a curved surface cannot be compared directly with a tangent vector at another point because the two vectors belong to differently oriented tangent planes. To account for this changing geometry, we construct a discrete connection on the edges of a triangle mesh.
+The current material in this repository focuses on the foundational geometric
+quantities needed for that pipeline:
 
-For an edge \((i,j)\), the connection map
+- area-weighted vertex normals;
+- mixed Voronoi vertex masses;
+- deterministic tangent frames;
+- numerical verification and visualization.
 
-\[
-\rho_{ij}\in\mathbb{R}^{3\times 3}
-\]
+## Geometric Overview
 
-transports a vector between the tangent spaces at vertices \(i\) and \(j\). These edgewise transport maps are combined with cotangent weights to define the connection-Laplacian energy
+At every mesh vertex, the local surface orientation is represented by a unit
+normal vector. The tangent plane is the two-dimensional plane perpendicular to
+this normal.
 
-\[
-E(z)
+A tangent frame consists of two perpendicular unit vectors lying inside the
+tangent plane. It acts as a local two-dimensional coordinate system for tangent
+vectors.
+
+These local frames will later be used to represent discrete parallel transport,
+connection Laplacians, vector heat diffusion, and the alignment of multiple
+surface logarithmic-map patches.
+
+## Area-Weighted Vertex Normals
+
+For a triangular face \(f=(i,j,k)\), define its oriented area vector by
+
+$$
+c_f=(v_j-v_i)\times(v_k-v_i).
+$$
+
+The unnormalized normal at vertex \(i\) is obtained by summing the area vectors
+of all incident faces:
+
+$$
+\widetilde n_i=\sum_{f\ni i}c_f.
+$$
+
+The unit vertex normal is
+
+$$
+n_i=
+\frac{\widetilde n_i}
+{\left\|\widetilde n_i\right\|}.
+$$
+
+The implementation is verified against
+`gpytoolbox.per_vertex_normals`.
+
+## Mixed Voronoi Mass Matrix
+
+Each vertex is assigned the area of its mixed Voronoi dual cell. These vertex
+areas form a diagonal mass matrix
+
+$$
+M=
+\operatorname{diag}(m_1,\ldots,m_n).
+$$
+
+The implementation handles both non-obtuse and obtuse triangles and is verified
+against `gpytoolbox.massmatrix`.
+
+## Deterministic Tangent Frames
+
+Let \(n_i\) be the unit normal at vertex \(i\).
+
+First, choose the global coordinate axis \(a_i\) that is least aligned with
+\(n_i\). Project this axis onto the tangent plane:
+
+$$
+\widetilde t_{1,i}
 =
-\frac{1}{2}
-\sum_{(i,j)\in E}
-w_{ij}
-\left\|
-z_j-\rho_{ij}z_i
-\right\|^2,
-\]
+a_i-(a_i\cdot n_i)n_i.
+$$
 
-where \(z_i\) is the vector stored at vertex \(i\), \(w_{ij}\) is the cotangent weight of edge \((i,j)\), and \(\rho_{ij}\) is the discrete parallel-transport map.
+Normalize it:
 
-The resulting connection Laplacian is then used in a vector heat diffusion process to propagate tangent directions smoothly over the surface.
+$$
+t_{1,i}
+=
+\frac{\widetilde t_{1,i}}
+{\left\|\widetilde t_{1,i}\right\|}.
+$$
+
+The second tangent direction is
+
+$$
+t_{2,i}=n_i\times t_{1,i}.
+$$
+
+The resulting tangent frame is
+
+$$
+T_i=
+\begin{bmatrix}
+t_{1,i} & t_{2,i}
+\end{bmatrix}.
+$$
+
+The implementation verifies unit length, tangency, orthogonality, right-handed
+orientation, and determinism.
 
 ## Current Implementation
 
-The current workflow includes:
+### Completed
 
 1. Computing area-weighted per-vertex normals.
-2. Verifying the normals against `gpytoolbox.per_vertex_normals`.
-3. Constructing deterministic tangent frames.
-4. Computing Rodrigues rotations between neighboring vertex normals.
-5. Computing cotangent edge weights.
-6. Assembling a block connection Laplacian.
-7. Verifying its quadratic form against a direct edge-based energy calculation.
-8. Solving an implicit vector heat system.
-9. Extracting relative directions and rotations between selected surface vertices.
+2. Verifying vertex normals against `gpytoolbox.per_vertex_normals`.
+3. Constructing a mixed Voronoi vertex mass matrix.
+4. Verifying the mass matrix against `gpytoolbox.massmatrix`.
+5. Constructing deterministic orthonormal tangent frames.
+6. Checking tangency, orthonormality, handedness, and determinism.
+7. Visualizing vertex normals and tangent frames in Polyscope.
+
+### Planned or in progress
+
+1. Edgewise parallel transport.
+2. Rodrigues rotations between neighboring tangent spaces.
+3. Cotangent edge weights.
+4. Sparse connection-Laplacian assembly.
+5. Direct connection-energy verification.
+6. Vector heat diffusion.
+7. Seed-to-seed transport extraction.
+8. Surface logarithmic-map patch alignment.
 
 ## Repository Structure
-```
+
+```text
 surface-logarithmic-maps/
 │
 ├── README.md
@@ -104,6 +198,7 @@ surface-logarithmic-maps/
         └── bunny_small.obj
 ```
 
+Only list files in this section that are actually present in the repository.
 
 ## Dependencies
 
@@ -115,27 +210,87 @@ scipy
 matplotlib
 trimesh
 gpytoolbox
+polyscope
 ```
 
 Install the dependencies with:
 
 ```bash
-pip install numpy scipy matplotlib trimesh gpytoolbox
+python -m pip install -r requirements.txt
 ```
+
+The corresponding `requirements.txt` file should contain:
+
+```text
+numpy
+scipy
+matplotlib
+trimesh
+gpytoolbox
+polyscope
+```
+
+## Usage
+
+Run the mass-matrix verification:
+
+```bash
+python examples/test_mass_matrix.py data/sample_meshes/bunny_small.obj
+```
+
+Run the tangent-frame verification:
+
+```bash
+python examples/test_tangent_frames.py data/sample_meshes/bunny_small.obj
+```
+
+Visualize the vertex normals:
+
+```bash
+python examples/visualize_vertex_normals_polyscope.py data/sample_meshes/bunny_small.obj
+```
+
+Visualize the tangent frames and normals:
+
+```bash
+python examples/visualize_tangent_frames.py data/sample_meshes/bunny_small.obj --show-normals
+```
+
+## Visualizations
+
+### Vertex normals
+
+The arrows represent area-weighted unit normals computed at the mesh vertices.
+
+![Area-weighted vertex normals](figures/vertex_normals_visualization.png)
+
+### Tangent frames
+
+The red arrows represent \(t_1\), the green arrows represent \(t_2\), and the
+magenta arrows represent the vertex normals.
+
+![Deterministic tangent frames](figures/tangent_frames_visualization.png)
 
 ## Status
 
-This repository is under active development as part of SGI 2026.
+This repository is under active development as part of my SGI 2026 volunteer
+work.
 
 - [x] Area-weighted vertex normals
 - [x] Verification against GPyToolbox
-- [ ] Deterministic tangent frames
+- [x] Mixed Voronoi vertex mass matrix
+- [x] Mass-matrix verification against GPyToolbox
+- [x] Deterministic tangent frames
+- [x] Tangent-frame numerical validation
+- [x] Polyscope visualizations
 - [ ] Rodrigues edge transports
 - [ ] Cotangent edge weights
 - [ ] Sparse connection-Laplacian assembly
 - [ ] Direct energy verification
 - [ ] Vector heat diffusion
 - [ ] Reduced-graph transport extraction
+- [ ] Surface logarithmic-map patch alignment
 
 ## License
 
+See the [LICENSE](LICENSE) file for details.
