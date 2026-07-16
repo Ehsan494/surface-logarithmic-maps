@@ -66,36 +66,43 @@ The current workflow includes:
 
 ## Repository Structure
 
-```text
 surface-logarithmic-maps/
 │
 ├── README.md
+├── LICENSE
 ├── requirements.txt
-│
-├── notebooks/
-│   ├── 01_vertex_normals.ipynb
-│   ├── 02_tangent_frames.ipynb
-│   ├── 03_edge_connections.ipynb
-│   ├── 04_connection_laplacian.ipynb
-│   └── 05_vector_heat.ipynb
+├── .gitignore
 │
 ├── src/
-│   ├── normals.py
-│   ├── frames.py
-│   ├── connections.py
-│   ├── laplacian.py
-│   └── vector_heat.py
+│   └── surface_log_map/
+│       ├── __init__.py
+│       ├── vertex_normals.py
+│       ├── mass_matrix.py
+│       └── tangent_frames.py
+│
+├── examples/
+│   ├── visualize_vertex_normals_polyscope.py
+│   ├── test_mass_matrix.py
+│   ├── test_tangent_frames.py
+│   └── visualize_tangent_frames.py
 │
 ├── tests/
 │   ├── test_vertex_normals.py
-│   ├── test_connections.py
-│   └── test_connection_laplacian.py
+│   ├── test_mass_matrix.py
+│   └── test_tangent_frames.py
 │
-├── data/
-│   └── sample_meshes/
+├── docs/
+│   ├── deterministic_tangent_frames_note.tex
+│   └── deterministic_tangent_frames_note.pdf
 │
-└── figures/
-```
+├── figures/
+│   ├── vertex_normals_visualization.png
+│   └── tangent_frames_visualization.png
+│
+└── data/
+    └── sample_meshes/
+        └── bunny_small.obj
+
 
 ## Dependencies
 
